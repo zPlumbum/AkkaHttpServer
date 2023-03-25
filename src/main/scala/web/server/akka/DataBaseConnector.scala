@@ -24,22 +24,10 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
 
   def readStafferFromDb(schemaName: String, dataTableName: String,
                         bioTableName: String, stafferName: String): StandardRoute = {
-    val stafferDataDf = spark.read
-      .format("jdbc")
-      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-      .option("dbtable", s"$dataTableName")
-      .option("user", userName)
-      .option("password", password)
-      .load()
+    val stafferDataDf = dbRead(schemaName, dataTableName)
       .filter(col("name") === stafferName)
 
-    val stafferBiographyDf = spark.read
-      .format("jdbc")
-      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-      .option("dbtable", s"$bioTableName")
-      .option("user", userName)
-      .option("password", password)
-      .load()
+    val stafferBiographyDf = dbRead(schemaName, bioTableName)
       .filter(col("name") === stafferName)
 
     if (stafferDataDf.isEmpty && stafferBiographyDf.isEmpty) {
@@ -66,27 +54,13 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
     }
 
     val is_existing = {
-      val staffer = spark.read
-        .format("jdbc")
-        .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-        .option("dbtable", s"$tableName")
-        .option("user", userName)
-        .option("password", password)
-        .load()
+      val staffer = dbRead(schemaName, tableName)
         .filter(col("name") === stafferDf.select("name").collect().take(1)(0).getString(0))
       if (staffer.head(1).isEmpty) false else true
     }
 
     if (!is_existing) {
-      stafferDf
-        .write
-        .mode("append")
-        .format("jdbc")
-        .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-        .option("dbtable", s"$tableName")
-        .option("user", userName)
-        .option("password", password)
-        .save()
+      dbWrite(stafferDf, schemaName, tableName)
       complete(StatusCodes.Created, "Staffer has been created.")
     } else {
       complete(StatusCodes.BadRequest, "Staffer with this name already exists.")
@@ -94,21 +68,9 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
   }
 
   def fixAnomalies(schemaName: String, dataTableName: String, bioTableName: String): Unit = {
-    val stafferDataDf = spark.read
-      .format("jdbc")
-      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-      .option("dbtable", s"$dataTableName")
-      .option("user", userName)
-      .option("password", password)
-      .load()
+    val stafferDataDf = dbRead(schemaName, dataTableName)
 
-    val stafferBiographyDf = spark.read
-      .format("jdbc")
-      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-      .option("dbtable", s"$bioTableName")
-      .option("user", userName)
-      .option("password", password)
-      .load()
+    val stafferBiographyDf = dbRead(schemaName, bioTableName)
 
     val rowsToDelete: List[String] = stafferBiographyDf
       .join(stafferDataDf, Seq("name"), "left_anti")
@@ -123,15 +85,7 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
       .withColumn("born", to_timestamp(lit("1900-01-01 00:00:00")))
       .withColumn("education", lit("УТОЧНИТЬ!"))
 
-    rowsToAdd
-      .write
-      .mode("append")
-      .format("jdbc")
-      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
-      .option("dbtable", s"$bioTableName")
-      .option("user", userName)
-      .option("password", password)
-      .save()
+    dbWrite(rowsToAdd, schemaName, bioTableName)
   }
 
   private def deleteStafferFromDb(schemaName: String, tableName: String, stafferName: String): Unit = {
@@ -149,5 +103,27 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
 
     statement.execute(queryDataTableName)
     statement.execute(queryBioTableName)
+  }
+
+  def dbRead(schemaName: String, tableName: String, user: String = userName, pwd: String = password): DataFrame = {
+    spark.read
+      .format("jdbc")
+      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
+      .option("dbtable", s"$tableName")
+      .option("user", user)
+      .option("password", pwd)
+      .load()
+  }
+
+  def dbWrite(df: DataFrame, schemaName: String, tableName: String,
+              user: String = userName, pwd: String = password): Unit = {
+    df.write
+      .mode("append")
+      .format("jdbc")
+      .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
+      .option("dbtable", s"$tableName")
+      .option("user", user)
+      .option("password", pwd)
+      .save()
   }
 }
