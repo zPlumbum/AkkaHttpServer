@@ -24,10 +24,10 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
 
   def readStafferFromDb(schemaName: String, dataTableName: String,
                         bioTableName: String, stafferName: String): StandardRoute = {
-    val stafferDataDf = dbRead(schemaName, dataTableName)
+    val stafferDataDf = readFromDb(schemaName, dataTableName)
       .filter(col("name") === stafferName)
 
-    val stafferBiographyDf = dbRead(schemaName, bioTableName)
+    val stafferBiographyDf = readFromDb(schemaName, bioTableName)
       .filter(col("name") === stafferName)
 
     if (stafferDataDf.isEmpty && stafferBiographyDf.isEmpty) {
@@ -53,14 +53,14 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
           .select(col("name"), col("born").cast("timestamp"), col("education"))
     }
 
-    val is_existing = {
-      val staffer = dbRead(schemaName, tableName)
+    val isExisting = {
+      val staffer = readFromDb(schemaName, tableName)
         .filter(col("name") === stafferDf.select("name").collect().take(1)(0).getString(0))
-      if (staffer.head(1).isEmpty) false else true
+      !staffer.head(1).isEmpty
     }
 
-    if (!is_existing) {
-      dbWrite(stafferDf, schemaName, tableName)
+    if (!isExisting) {
+      writeToDb(stafferDf, schemaName, tableName)
       complete(StatusCodes.Created, "Staffer has been created.")
     } else {
       complete(StatusCodes.BadRequest, "Staffer with this name already exists.")
@@ -68,9 +68,9 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
   }
 
   def fixAnomalies(schemaName: String, dataTableName: String, bioTableName: String): Unit = {
-    val stafferDataDf = dbRead(schemaName, dataTableName)
+    val stafferDataDf = readFromDb(schemaName, dataTableName)
 
-    val stafferBiographyDf = dbRead(schemaName, bioTableName)
+    val stafferBiographyDf = readFromDb(schemaName, bioTableName)
 
     val rowsToDelete: List[String] = stafferBiographyDf
       .join(stafferDataDf, Seq("name"), "left_anti")
@@ -85,7 +85,7 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
       .withColumn("born", to_timestamp(lit("1900-01-01 00:00:00")))
       .withColumn("education", lit("УТОЧНИТЬ!"))
 
-    dbWrite(rowsToAdd, schemaName, bioTableName)
+    writeToDb(rowsToAdd, schemaName, bioTableName)
   }
 
   private def deleteStafferFromDb(schemaName: String, tableName: String, stafferName: String): Unit = {
@@ -105,7 +105,7 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
     statement.execute(queryBioTableName)
   }
 
-  def dbRead(schemaName: String, tableName: String, user: String = userName, pwd: String = password): DataFrame = {
+  def readFromDb(schemaName: String, tableName: String, user: String = userName, pwd: String = password): DataFrame = {
     spark.read
       .format("jdbc")
       .option("url", s"jdbc:postgresql://localhost:5432/$schemaName")
@@ -115,8 +115,8 @@ class DataBaseConnector extends StafferJsonProtocol with SprayJsonSupport {
       .load()
   }
 
-  def dbWrite(df: DataFrame, schemaName: String, tableName: String,
-              user: String = userName, pwd: String = password): Unit = {
+  def writeToDb(df: DataFrame, schemaName: String, tableName: String,
+                user: String = userName, pwd: String = password): Unit = {
     df.write
       .mode("append")
       .format("jdbc")
