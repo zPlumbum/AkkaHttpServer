@@ -17,12 +17,12 @@ object AkkaHttpServer extends StafferJsonProtocol with SprayJsonSupport {
 
   implicit val system: ActorSystem[Nothing] = ActorSystem(Behaviors.empty, "AkkaHttpServer")
   implicit val executionContext: ExecutionContextExecutor = system.executionContext
-  val server =  new AkkaHttpServer
+  val server = new AkkaHttpServer
   val routes: Route = server.routes
 
   def main(args: Array[String]): Unit = {
     val httpServer = Http().newServerAt("localhost", 8080).bind(routes)
-    println(s"Server now online. Please navigate to http://localhost:8080/api/hello\nPress RETURN to stop...")
+    println(s"Server is online now.\nPress RETURN to stop...")
     StdIn.readLine()
     httpServer
       .flatMap(_.unbind())
